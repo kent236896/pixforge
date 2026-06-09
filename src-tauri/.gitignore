@@ -10,3 +10,5 @@
 dist/
 node_modules/
 src-tauri/models/
+dist-release/
+dist-debug/
