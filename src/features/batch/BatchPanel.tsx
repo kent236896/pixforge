@@ -10,9 +10,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
-  runBatch, cancelBatch, expandDropPaths, pickDirectory, pickOpenImages, formatBytes,
+  runBatch, cancelBatch, expandDropPaths, pickDirectory, pickOpenImages,
   listen, type BatchOperation, type BatchFileResult, type ResizeParams,
 } from "@/lib/invoke";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,15 +41,9 @@ function basename(p: string) {
 // ── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, error }: { status: QueueItem["status"]; error?: string }) {
-  if (status === "waiting") {
-    return <Clock size={13} className="shrink-0 text-muted-foreground" />;
-  }
-  if (status === "processing") {
-    return <Loader2 size={13} className="shrink-0 animate-spin text-primary" />;
-  }
-  if (status === "done") {
-    return <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />;
-  }
+  if (status === "waiting")    return <Clock   size={13} className="shrink-0 text-muted-foreground" />;
+  if (status === "processing") return <Loader2 size={13} className="shrink-0 animate-spin text-primary" />;
+  if (status === "done")       return <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />;
   return (
     <span title={error} className="cursor-help">
       <AlertCircle size={13} className="shrink-0 text-destructive" />
@@ -73,10 +68,10 @@ function RangeRow({
         <span className="text-xs font-mono">{value}{unit}</span>
       </div>
       <input
-        type="range"
-        min={min} max={max} step={step}
+        type="range" min={min} max={max} step={step}
         value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
+        aria-label={label}
         className="h-1.5 w-full cursor-pointer accent-primary"
       />
     </div>
@@ -89,17 +84,16 @@ function ConvertSettings({
   format: string; quality: number;
   onFormat: (f: string) => void; onQuality: (q: number) => void;
 }) {
+  const t = useT();
   const lossy = format === "JPEG" || format === "WEBP";
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Target Format</Label>
+        <Label className="text-xs text-muted-foreground">{t("batch.targetFormat")}</Label>
         <div className="grid grid-cols-3 gap-1">
           {FORMATS.map(f => (
             <button
-              key={f}
-              type="button"
-              onClick={() => onFormat(f)}
+              key={f} type="button" onClick={() => onFormat(f)}
               className={cn(
                 "rounded border border-border py-1.5 text-[11px] font-medium transition-colors hover:bg-accent",
                 format === f && "border-primary bg-accent text-accent-foreground"
@@ -112,7 +106,7 @@ function ConvertSettings({
       </div>
       {lossy && (
         <RangeRow
-          label="Quality" value={quality} min={1} max={100} step={1}
+          label={t("batch.quality")} value={quality} min={1} max={100} step={1}
           onChange={onQuality}
         />
       )}
@@ -129,34 +123,33 @@ function ResizeSettings({
   onPercent: (v: number) => void;
   onLongest: (v: number) => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Mode</Label>
+        <Label className="text-xs text-muted-foreground">{t("batch.mode")}</Label>
         <div className="flex gap-1">
           {(["percent", "longest"] as const).map(m => (
             <button
-              key={m}
-              type="button"
-              onClick={() => onMode(m)}
+              key={m} type="button" onClick={() => onMode(m)}
               className={cn(
-                "flex-1 rounded border border-border py-1.5 text-[11px] font-medium capitalize transition-colors hover:bg-accent",
+                "flex-1 rounded border border-border py-1.5 text-[11px] font-medium transition-colors hover:bg-accent",
                 mode === m && "border-primary bg-accent text-accent-foreground"
               )}
             >
-              {m === "percent" ? "% Scale" : "Longest Side"}
+              {m === "percent" ? t("batch.percentScale") : t("batch.longestSide")}
             </button>
           ))}
         </div>
       </div>
       {mode === "percent" ? (
         <RangeRow
-          label="Scale" value={percent} min={1} max={200} step={1} unit="%"
+          label={t("batch.scale")} value={percent} min={1} max={200} step={1} unit="%"
           onChange={onPercent}
         />
       ) : (
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Max px</Label>
+          <Label className="text-xs text-muted-foreground">{t("batch.maxPx")}</Label>
           <Input
             type="number" min={16} max={8192} step={1}
             value={longest}
@@ -164,6 +157,7 @@ function ResizeSettings({
               const v = parseInt(e.target.value);
               if (!isNaN(v)) onLongest(Math.min(8192, Math.max(16, v)));
             }}
+            aria-label={t("batch.maxPx")}
             className="h-7 w-full text-xs"
           />
         </div>
@@ -173,13 +167,14 @@ function ResizeSettings({
 }
 
 function OptimizeSettings({ quality, onQuality }: { quality: number; onQuality: (q: number) => void }) {
+  const t = useT();
   return (
     <div className="space-y-1.5">
       <RangeRow
-        label="Quality" value={quality} min={1} max={100} step={1}
+        label={t("batch.quality")} value={quality} min={1} max={100} step={1}
         onChange={onQuality}
       />
-      <p className="text-[10px] text-muted-foreground">Applies to JPEG · WebP · AVIF</p>
+      <p className="text-[10px] text-muted-foreground">{t("batch.jpegHint")}</p>
     </div>
   );
 }
@@ -187,26 +182,26 @@ function OptimizeSettings({ quality, onQuality }: { quality: number; onQuality: 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function BatchPanel() {
-  const [queue, setQueue]         = useState<QueueItem[]>([]);
-  const [running, setRunning]     = useState(false);
-  const [progress, setProgress]   = useState({ done: 0, total: 0 });
+  const t = useT();
 
-  // Operation settings
-  const [opKind, setOpKind]       = useState<"convert" | "resize" | "optimize">("convert");
-  const [convertFmt, setConvertFmt]   = useState("PNG");
-  const [convertQuality, setConvertQuality] = useState(90);
-  const [resizeMode, setResizeMode]   = useState<"percent" | "longest">("percent");
-  const [resizePercent, setResizePercent] = useState(50);
-  const [resizeLongest, setResizeLongest] = useState(1920);
+  const [queue, setQueue]       = useState<QueueItem[]>([]);
+  const [running, setRunning]   = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+
+  const [opKind, setOpKind]                   = useState<"convert" | "resize" | "optimize">("convert");
+  const [convertFmt, setConvertFmt]           = useState("PNG");
+  const [convertQuality, setConvertQuality]   = useState(90);
+  const [resizeMode, setResizeMode]           = useState<"percent" | "longest">("percent");
+  const [resizePercent, setResizePercent]     = useState(50);
+  const [resizeLongest, setResizeLongest]     = useState(1920);
   const [optimizeQuality, setOptimizeQuality] = useState(80);
 
-  // Output settings
-  const [outDir, setOutDir]         = useState("");
+  const [outDir, setOutDir]             = useState("");
   const [nameTemplate, setNameTemplate] = useState("{name}_out");
 
   const unlistenRef = useRef<(() => void) | null>(null);
 
-  // ── File queue helpers ──────────────────────────────────────────────────────
+  // ── File queue helpers ────────────────────────────────────────────────────
 
   const addFiles = useCallback((paths: string[]) => {
     const imgs = paths.filter(isImagePath);
@@ -226,7 +221,7 @@ export function BatchPanel() {
 
   const clearQueue = useCallback(() => setQueue([]), []);
 
-  // ── Drag-drop (Tauri native) — expand folders automatically ────────────────
+  // ── Drag-drop (Tauri native) ──────────────────────────────────────────────
 
   useEffect(() => {
     if (running) return;
@@ -239,14 +234,14 @@ export function BatchPanel() {
           const expanded = await expandDropPaths(raw);
           addFiles(expanded);
         } catch {
-          addFiles(raw); // fallback: treat all as files
+          addFiles(raw);
         }
       }
     }).then(fn => { unlisten = fn; });
     return () => { unlisten?.(); };
   }, [running, addFiles]);
 
-  // ── Batch start/cancel ─────────────────────────────────────────────────────
+  // ── Batch start/cancel ────────────────────────────────────────────────────
 
   const buildOp = (): BatchOperation => {
     switch (opKind) {
@@ -268,40 +263,25 @@ export function BatchPanel() {
   const templateValid = TEMPLATE_VARS.some(v => nameTemplate.includes(v));
 
   const handleStart = useCallback(async () => {
-    if (queue.length === 0) {
-      toast.error("Add images to the queue first");
-      return;
-    }
-    if (!outDir) {
-      toast.error("Select an output folder");
-      return;
-    }
+    if (queue.length === 0) { toast.error(t("batch.noFiles")); return; }
+    if (!outDir)            { toast.error(t("batch.noFolder")); return; }
     if (!TEMPLATE_VARS.some(v => nameTemplate.includes(v))) {
-      toast.error("Name template must contain at least one variable", {
-        description: "Use {name}, {index}, or {ext}",
-      });
+      toast.error(t("batch.templateError"), { description: t("batch.templateErrorDesc") });
       return;
     }
 
-    // Reset all to waiting
     setQueue(prev => prev.map(item => ({
       ...item, status: "waiting", error: undefined, outputPath: undefined,
     })));
     setProgress({ done: 0, total: queue.length });
     setRunning(true);
 
-    // Subscribe to progress events
     const unlisten = await listen<BatchFileResult>("batch://progress", ev => {
       const r = ev.payload;
       setProgress({ done: r.done, total: r.total });
       setQueue(prev => prev.map((item, i) =>
         i === r.index
-          ? {
-              ...item,
-              status: r.status as QueueItem["status"],
-              error: r.error ?? undefined,
-              outputPath: r.output_path ?? undefined,
-            }
+          ? { ...item, status: r.status as QueueItem["status"], error: r.error ?? undefined, outputPath: r.output_path ?? undefined }
           : item
       ));
     });
@@ -309,7 +289,7 @@ export function BatchPanel() {
 
     const srcPaths = queue.map(i => i.path);
     const op = buildOp();
-    const tid = toast.loading(`Processing ${srcPaths.length} files…`);
+    const tid = toast.loading(t("batch.processing", srcPaths.length));
 
     try {
       await runBatch(srcPaths, op, outDir, nameTemplate);
@@ -317,62 +297,68 @@ export function BatchPanel() {
         const done = prev.filter(i => i.status === "done").length;
         const err  = prev.filter(i => i.status === "error").length;
         if (err > 0) {
-          toast.warning(`Done: ${done} succeeded, ${err} failed`, { id: tid });
+          toast.warning(t("batch.doneWarning", done, err), { id: tid });
         } else {
-          toast.success(`All ${done} files processed`, { id: tid });
+          toast.success(t("batch.doneSuccess", done), { id: tid });
         }
         return prev;
       });
     } catch (e) {
-      toast.error("Batch failed", { id: tid, description: String(e) });
+      toast.error(t("batch.batchFailed"), { id: tid, description: String(e) });
     } finally {
       unlistenRef.current?.();
       unlistenRef.current = null;
       setRunning(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue, outDir, nameTemplate, opKind, convertFmt, convertQuality, resizeMode, resizePercent, resizeLongest, optimizeQuality]);
+  }, [t, queue, outDir, nameTemplate, opKind, convertFmt, convertQuality, resizeMode, resizePercent, resizeLongest, optimizeQuality]);
 
   const handleCancel = useCallback(async () => {
     await cancelBatch();
-    toast.info("Cancelling…");
-  }, []);
+    toast.info(t("batch.cancelling"));
+  }, [t]);
 
-  // Cleanup listener on unmount
   useEffect(() => () => { unlistenRef.current?.(); }, []);
 
-  // ── Counts ──────────────────────────────────────────────────────────────────
+  // ── Counts ────────────────────────────────────────────────────────────────
 
-  const doneCount  = queue.filter(i => i.status === "done").length;
-  const errCount   = queue.filter(i => i.status === "error").length;
+  const doneCount = queue.filter(i => i.status === "done").length;
+  const errCount  = queue.filter(i => i.status === "error").length;
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  const OP_BTNS: Array<{ kind: "convert" | "resize" | "optimize"; label: string }> = [
+    { kind: "convert",  label: t("batch.opConvert")  },
+    { kind: "resize",   label: t("batch.opResize")   },
+    { kind: "optimize", label: t("batch.opOptimize") },
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* ── Left: file queue ─────────────────────────────────────────────── */}
+      {/* ── Left: file queue ──────────────────────────────────────────────── */}
       <div className="flex flex-[3] flex-col gap-3 overflow-hidden border-r border-border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Batch Process</h2>
+          <h2 className="text-sm font-semibold">{t("batch.title")}</h2>
           {queue.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-muted-foreground">{queue.length} files</span>
+              <span className="text-[11px] text-muted-foreground">
+                {t("batch.filesCount", queue.length)}
+              </span>
               {!running && (
                 <button
                   type="button"
                   onClick={clearQueue}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors"
                 >
-                  <Trash2 size={11} />
-                  Clear all
+                  <Trash2 size={11} aria-hidden="true" />
+                  {t("batch.clearAll")}
                 </button>
               )}
             </div>
           )}
         </div>
 
-        {/* Drop / add zone */}
         {!running && (
           <button
             type="button"
@@ -380,18 +366,18 @@ export function BatchPanel() {
               const picked = await pickOpenImages();
               if (picked.length > 0) addFiles(picked);
             }}
+            aria-label={t("batch.dropZone")}
             className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border px-4 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:bg-accent/20 hover:text-foreground shrink-0"
           >
-            <ImagePlus size={14} />
-            Drop images or folders here · click to add files
+            <ImagePlus size={14} aria-hidden="true" />
+            {t("batch.dropZone")}
           </button>
         )}
 
-        {/* File list */}
         {queue.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-            <ImagePlus size={32} strokeWidth={1} />
-            <p className="text-xs">No images added yet</p>
+            <ImagePlus size={32} strokeWidth={1} aria-hidden="true" />
+            <p className="text-xs">{t("batch.emptyQueue")}</p>
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto rounded-lg border border-border">
@@ -407,25 +393,23 @@ export function BatchPanel() {
                   className={cn(
                     "flex items-center gap-2 border-b border-border px-3 py-2 last:border-b-0",
                     item.status === "processing" && "bg-accent/30",
-                    item.status === "done" && "bg-emerald-500/5",
-                    item.status === "error" && "bg-destructive/5",
+                    item.status === "done"       && "bg-emerald-500/5",
+                    item.status === "error"      && "bg-destructive/5",
                   )}
                 >
                   <StatusBadge status={item.status} error={item.error} />
-                  <span
-                    className="flex-1 truncate text-xs font-mono"
-                    title={item.path}
-                  >
+                  <span className="flex-1 truncate text-xs font-mono" title={item.path}>
                     {item.name}
                   </span>
                   {item.status === "done" && item.outputPath && (
                     <button
                       type="button"
                       onClick={() => revealItemInDir(item.outputPath!)}
+                      aria-label={t("batch.showInExplorer")}
+                      title={t("batch.showInExplorer")}
                       className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                      title="Show in Explorer"
                     >
-                      <FolderOutput size={12} />
+                      <FolderOutput size={12} aria-hidden="true" />
                     </button>
                   )}
                   {item.status === "error" && item.error && (
@@ -436,10 +420,11 @@ export function BatchPanel() {
                   {!running && (
                     <button
                       type="button"
+                      aria-label="Remove"
                       onClick={() => removeItem(idx)}
                       className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
                     >
-                      <X size={12} />
+                      <X size={12} aria-hidden="true" />
                     </button>
                   )}
                 </motion.div>
@@ -448,17 +433,18 @@ export function BatchPanel() {
           </div>
         )}
 
-        {/* Summary row */}
         {queue.length > 0 && (doneCount > 0 || errCount > 0) && (
           <div className="flex gap-3 text-[11px] shrink-0">
             {doneCount > 0 && (
               <span className="flex items-center gap-1 text-emerald-500">
-                <CheckCircle2 size={11} />{doneCount} done
+                <CheckCircle2 size={11} aria-hidden="true" />
+                {t("batch.doneCount", doneCount)}
               </span>
             )}
             {errCount > 0 && (
               <span className="flex items-center gap-1 text-destructive">
-                <AlertCircle size={11} />{errCount} failed
+                <AlertCircle size={11} aria-hidden="true" />
+                {t("batch.failedCount", errCount)}
               </span>
             )}
           </div>
@@ -470,24 +456,25 @@ export function BatchPanel() {
 
         {/* Operation selector */}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Operation</h3>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {t("batch.operation")}
+          </h3>
           <div className="flex overflow-hidden rounded-lg border border-border">
-            {(["convert", "resize", "optimize"] as const).map((k, i) => (
+            {OP_BTNS.map(({ kind, label }, i) => (
               <button
-                key={k}
-                type="button"
-                onClick={() => setOpKind(k)}
+                key={kind} type="button"
+                onClick={() => setOpKind(kind)}
                 disabled={running}
                 className={cn(
                   "flex-1 py-1.5 text-[11px] font-medium capitalize transition-colors",
                   i < 2 && "border-r border-border",
-                  opKind === k
+                  opKind === kind
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:text-foreground",
                   "disabled:opacity-40"
                 )}
               >
-                {k}
+                {label}
               </button>
             ))}
           </div>
@@ -513,49 +500,56 @@ export function BatchPanel() {
 
         {/* Output settings */}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Output</h3>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {t("batch.output")}
+          </h3>
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Folder</Label>
+            <Label className="text-xs text-muted-foreground">{t("batch.folder")}</Label>
             <div className="flex gap-1.5">
               <Input
-                readOnly
-                value={outDir}
-                placeholder="Select folder…"
+                readOnly value={outDir}
+                placeholder={t("batch.selectFolder")}
                 className="h-7 flex-1 truncate text-xs"
+                aria-label={t("batch.folder")}
               />
               <button
-                type="button"
-                disabled={running}
+                type="button" disabled={running}
                 onClick={async () => {
                   const dir = await pickDirectory();
                   if (dir) setOutDir(dir);
                 }}
+                aria-label={t("batch.folder")}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
               >
-                <FolderOpen size={13} />
+                <FolderOpen size={13} aria-hidden="true" />
               </button>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Name Template
-            </Label>
+            <Label className="text-xs text-muted-foreground">{t("batch.nameTemplate")}</Label>
             <Input
               value={nameTemplate}
               onChange={e => setNameTemplate(e.target.value)}
               disabled={running}
               placeholder="{name}_out"
-              className={cn("h-7 text-xs font-mono", !templateValid && nameTemplate.length > 0 && "border-destructive focus-visible:ring-destructive")}
+              aria-label={t("batch.nameTemplate")}
+              className={cn(
+                "h-7 text-xs font-mono",
+                !templateValid && nameTemplate.length > 0 && "border-destructive focus-visible:ring-destructive"
+              )}
             />
             {!templateValid && nameTemplate.length > 0 ? (
-              <p className="text-[10px] text-destructive">
-                Must include at least one variable: {"{name}"}, {"{index}"}, or {"{ext}"}
+              <p className="text-[10px] text-destructive" role="alert">
+                {t("batch.templateInvalid")}
               </p>
             ) : (
               <p className="text-[10px] text-muted-foreground">
-                Variables: <code className="font-mono">{"{name}"}</code> <code className="font-mono">{"{index}"}</code> <code className="font-mono">{"{ext}"}</code>
+                {t("batch.templateHint")}{" "}
+                <code className="font-mono">{"{name}"}</code>{" "}
+                <code className="font-mono">{"{index}"}</code>{" "}
+                <code className="font-mono">{"{ext}"}</code>
               </p>
             )}
           </div>
@@ -563,9 +557,9 @@ export function BatchPanel() {
 
         {/* Progress */}
         {running && (
-          <div className="space-y-2">
+          <div className="space-y-2" aria-live="polite" aria-label={t("batch.progress")}>
             <div className="flex justify-between text-[11px]">
-              <span className="text-muted-foreground">Progress</span>
+              <span className="text-muted-foreground">{t("batch.progress")}</span>
               <span className="font-mono">{progress.done}/{progress.total}</span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -583,22 +577,22 @@ export function BatchPanel() {
         {/* Actions */}
         <div className="flex gap-2">
           <button
-            type="button"
-            onClick={handleStart}
+            type="button" onClick={handleStart}
             disabled={running || queue.length === 0 || !outDir || !templateValid}
+            aria-label={t("batch.start")}
             className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
           >
-            <Play size={13} strokeWidth={2} />
-            Start {queue.length > 0 && `(${queue.length})`}
+            <Play size={13} strokeWidth={2} aria-hidden="true" />
+            {t("batch.start")} {queue.length > 0 && `(${queue.length})`}
           </button>
           <button
-            type="button"
-            onClick={handleCancel}
+            type="button" onClick={handleCancel}
             disabled={!running}
+            aria-label={t("batch.stop")}
             className="flex h-9 w-20 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-30"
           >
-            <Square size={13} strokeWidth={2} />
-            Stop
+            <Square size={13} strokeWidth={2} aria-hidden="true" />
+            {t("batch.stop")}
           </button>
         </div>
       </div>

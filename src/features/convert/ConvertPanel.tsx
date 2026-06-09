@@ -7,10 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { convertImage, generatePreview, pickSavePath, formatBytes, formatExt, type ImageInfo } from "@/lib/invoke";
 import { useExportShortcut } from "@/lib/useExportShortcut";
 import { useAppStore } from "@/store/app";
+import { useT } from "@/lib/i18n";
 import { Loader } from "lucide-react";
 
 const FORMATS = ["PNG", "JPEG", "WEBP", "GIF", "TIFF", "BMP"];
-const LOSSY = new Set(["JPEG", "WEBP"]);
+const LOSSY   = new Set(["JPEG", "WEBP"]);
 
 interface Props { image: ImageInfo }
 
@@ -19,8 +20,9 @@ function sliderValue(value: number | readonly number[], fallback: number) {
 }
 
 export function ConvertPanel({ image }: Props) {
+  const t = useT();
   const setCurrentImage = useAppStore(state => state.setCurrentImage);
-  const [format, setFormat] = useState("PNG");
+  const [format,  setFormat]  = useState("PNG");
   const [quality, setQuality] = useState(85);
   const [loading, setLoading] = useState(false);
 
@@ -30,7 +32,7 @@ export function ConvertPanel({ image }: Props) {
     if (!dst) return;
 
     setLoading(true);
-    const tid = toast.loading(`Converting to ${format}...`);
+    const tid = toast.loading(t("convert.loading", format));
     try {
       const r = await convertImage(image.path, dst, {
         format,
@@ -39,26 +41,26 @@ export function ConvertPanel({ image }: Props) {
       });
       const preview = await generatePreview(r.output_path, 1200);
       setCurrentImage(r.info, preview);
-      toast.success(`Saved as ${format}`, {
+      toast.success(t("convert.success", format), {
         id: tid,
-        description: `${formatBytes(r.original_size)} -> ${formatBytes(r.info.file_size)}`,
-        action: { label: "Show", onClick: () => revealItemInDir(r.output_path) },
+        description: `${formatBytes(r.original_size)} → ${formatBytes(r.info.file_size)}`,
+        action: { label: t("common.show"), onClick: () => revealItemInDir(r.output_path) },
       });
     } catch (e) {
-      toast.error("Conversion failed", { id: tid, description: String(e) });
+      toast.error(t("convert.error"), { id: tid, description: String(e) });
     } finally {
       setLoading(false);
     }
-  }, [format, quality, image, setCurrentImage]);
+  }, [t, format, quality, image, setCurrentImage]);
 
   useExportShortcut(handleExport);
 
   return (
     <div className="flex h-full flex-col gap-5 p-4">
-      <h2 className="text-sm font-semibold">Format Conversion</h2>
+      <h2 className="text-sm font-semibold">{t("convert.title")}</h2>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Output Format</Label>
+        <Label className="text-xs text-muted-foreground">{t("convert.outputFormat")}</Label>
         <Select value={format} onValueChange={value => value && setFormat(value)}>
           <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -70,22 +72,20 @@ export function ConvertPanel({ image }: Props) {
       {LOSSY.has(format) && (
         <div className="space-y-2">
           <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Quality</Label>
+            <Label className="text-xs text-muted-foreground">{t("convert.quality")}</Label>
             <span className="text-xs font-mono">{quality}</span>
           </div>
           <Slider
             value={[quality]}
             onValueChange={value => setQuality(sliderValue(value, quality))}
-            min={1}
-            max={100}
-            step={1}
+            min={1} max={100} step={1}
           />
         </div>
       )}
 
       {format === "JPEG" && (
         <p className="text-[11px] text-muted-foreground">
-          Transparent areas {"->"} white background
+          {t("convert.transparentHint")}
         </p>
       )}
 
@@ -93,12 +93,13 @@ export function ConvertPanel({ image }: Props) {
         <button
           onClick={handleExport}
           disabled={loading}
+          aria-label={t("convert.exportAs", format)}
           className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
-          {loading && <Loader size={14} className="animate-spin" />}
-          Export as {format}
+          {loading && <Loader size={14} className="animate-spin" aria-hidden="true" />}
+          {t("convert.exportAs", format)}
         </button>
-        <p className="mt-1.5 text-center text-[10px] text-muted-foreground">Ctrl+S</p>
+        <p className="mt-1.5 text-center text-[10px] text-muted-foreground">{t("common.ctrl_s")}</p>
       </div>
     </div>
   );

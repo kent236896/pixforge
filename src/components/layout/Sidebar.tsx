@@ -12,14 +12,17 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore, type Module } from "@/store/app";
+import { useT } from "@/lib/i18n";
 
-const NAV_ITEMS: { id: Module; icon: React.ElementType; label: string; labelZh: string }[] = [
-  { id: "convert", icon: FileOutput, label: "Convert", labelZh: "格式转换" },
-  { id: "resize", icon: Maximize2, label: "Resize", labelZh: "尺寸调整" },
-  { id: "crop", icon: Crop, label: "Crop & Rotate", labelZh: "裁剪旋转" },
-  { id: "batch", icon: Layers, label: "Batch", labelZh: "批量处理" },
-  { id: "optimize", icon: Zap, label: "Optimize", labelZh: "压缩优化" },
-  { id: "bgeffect", icon: Sparkles, label: "BgEffect", labelZh: "背景特效" },
+type NavItem = { id: Module; icon: React.ElementType; labelKey: string; shortKey: string };
+
+const NAV_ITEMS: NavItem[] = [
+  { id: "convert",  icon: FileOutput, labelKey: "nav.convert",  shortKey: "nav.convert.short"  },
+  { id: "resize",   icon: Maximize2,  labelKey: "nav.resize",   shortKey: "nav.resize.short"   },
+  { id: "crop",     icon: Crop,       labelKey: "nav.crop",     shortKey: "nav.crop.short"     },
+  { id: "batch",    icon: Layers,     labelKey: "nav.batch",    shortKey: "nav.batch.short"    },
+  { id: "optimize", icon: Zap,        labelKey: "nav.optimize", shortKey: "nav.optimize.short" },
+  { id: "bgeffect", icon: Sparkles,   labelKey: "nav.bgeffect", shortKey: "nav.bgeffect.short" },
 ];
 
 const THEME_ICONS = {
@@ -29,10 +32,11 @@ const THEME_ICONS = {
 } as const;
 
 export function Sidebar() {
+  const t = useT();
   const activeModule = useAppStore(state => state.activeModule);
-  const theme = useAppStore(state => state.theme);
-  const setModule = useAppStore(state => state.setModule);
-  const setTheme = useAppStore(state => state.setTheme);
+  const theme        = useAppStore(state => state.theme);
+  const setModule    = useAppStore(state => state.setModule);
+  const setTheme     = useAppStore(state => state.setTheme);
 
   function cycleTheme() {
     const order = ["light", "dark", "system"] as const;
@@ -45,10 +49,11 @@ export function Sidebar() {
   return (
     <aside className="flex flex-col w-14 shrink-0 bg-sidebar border-r border-sidebar-border">
       <nav className="flex flex-col gap-1 p-1.5 flex-1">
-        {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
+        {NAV_ITEMS.map(({ id, icon: Icon, labelKey, shortKey }) => (
           <button
             key={id}
-            title={label}
+            aria-label={t(labelKey)}
+            title={t(labelKey)}
             onClick={() => setModule(id)}
             className={cn(
               "group flex flex-col items-center justify-center gap-0.5 h-12 w-full rounded-md transition-colors",
@@ -57,9 +62,9 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
-            <Icon size={18} strokeWidth={1.75} />
+            <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
             <span className="text-[9px] font-medium leading-none tracking-wide">
-              {label.split(" ")[0]}
+              {t(shortKey)}
             </span>
           </button>
         ))}
@@ -67,17 +72,25 @@ export function Sidebar() {
 
       <div className="flex flex-col gap-1 p-1.5 border-t border-sidebar-border">
         <button
-          title="Theme"
+          aria-label="Toggle theme"
+          title="Toggle theme"
           onClick={cycleTheme}
           className="flex flex-col items-center justify-center gap-0.5 h-10 w-full rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
-          <ThemeIcon size={16} strokeWidth={1.75} />
+          <ThemeIcon size={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
         <button
-          title="Settings"
-          className="flex flex-col items-center justify-center gap-0.5 h-10 w-full rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          aria-label={t("nav.settings")}
+          title={t("nav.settings")}
+          onClick={() => setModule("settings")}
+          className={cn(
+            "flex flex-col items-center justify-center gap-0.5 h-10 w-full rounded-md transition-colors",
+            activeModule === "settings"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
         >
-          <Settings size={16} strokeWidth={1.75} />
+          <Settings size={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
       </div>
     </aside>

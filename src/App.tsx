@@ -5,15 +5,18 @@ import { Toaster } from "@/components/ui/sonner";
 import { Titlebar } from "@/components/layout/Titlebar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Statusbar } from "@/components/layout/Statusbar";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useAppStore } from "@/store/app";
+import { useT } from "@/lib/i18n";
 import { getImageInfo, generatePreview, formatBytes, pickOpenImage, type ImageInfo } from "@/lib/invoke";
-import { ConvertPanel } from "@/features/convert/ConvertPanel";
-import { ResizePanel } from "@/features/resize/ResizePanel";
-import { CropPanel } from "@/features/crop/CropPanel";
+import { ConvertPanel }  from "@/features/convert/ConvertPanel";
+import { ResizePanel }   from "@/features/resize/ResizePanel";
+import { CropPanel }     from "@/features/crop/CropPanel";
 import { OptimizePanel } from "@/features/optimize/OptimizePanel";
 import { BgEffectPanel } from "@/features/bg_effect/BgEffectPanel";
-import { BatchPanel } from "@/features/batch/BatchPanel";
-import { RotateCw, Upload } from "lucide-react";
+import { BatchPanel }    from "@/features/batch/BatchPanel";
+import { SettingsPanel } from "@/features/settings/SettingsPanel";
+import { Minus, Plus, RotateCw, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CropRegion, CropTransform, ResizeSettings } from "@/store/app";
 
@@ -39,9 +42,13 @@ async function loadImage(path: string) {
 }
 
 function DropZone({ dragging }: { dragging: boolean }) {
+  const t = useT();
   return (
     <div className="flex flex-1 items-center justify-center p-8">
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={t("dropzone.title")}
         className={cn(
           "flex flex-col items-center gap-4 rounded-xl border-2 border-dashed px-16 py-14 text-center transition-all duration-200 cursor-pointer w-full max-w-lg",
           dragging
@@ -52,20 +59,27 @@ function DropZone({ dragging }: { dragging: boolean }) {
           const path = await pickOpenImage();
           if (path) loadImage(path);
         }}
+        onKeyDown={async (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            const path = await pickOpenImage();
+            if (path) loadImage(path);
+          }
+        }}
       >
         <motion.div
           animate={{ scale: dragging ? 1.15 : 1 }}
           transition={{ type: "spring", stiffness: 300, damping: 20 }}
           className="flex h-14 w-14 items-center justify-center rounded-full bg-muted"
         >
-          <Upload size={24} className={cn("transition-colors", dragging ? "text-primary" : "text-muted-foreground")} />
+          <Upload size={24} className={cn("transition-colors", dragging ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
         </motion.div>
         <div>
           <p className="text-sm font-medium text-foreground">
-            {dragging ? "Release to open" : "Drop images here"}
+            {dragging ? t("dropzone.release") : t("dropzone.title")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {dragging ? "" : "or click to select  ·  Ctrl+O"}
+            {dragging ? "" : t("dropzone.hint")}
           </p>
         </div>
         {!dragging && (
@@ -87,11 +101,13 @@ function ActivePanel() {
       <motion.div key={activeModule} className="flex flex-col flex-1"
         initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
         transition={{ duration: 0.15 }}>
-        {activeModule === "convert"  && <ConvertPanel  image={currentImage} />}
-        {activeModule === "resize"   && <ResizePanel   image={currentImage} />}
-        {activeModule === "crop"     && <CropPanel     image={currentImage} />}
-        {activeModule === "optimize" && <OptimizePanel image={currentImage} />}
-        {activeModule === "bgeffect" && <BgEffectPanel image={currentImage} />}
+        <ErrorBoundary label={activeModule}>
+          {activeModule === "convert"  && <ConvertPanel  image={currentImage} />}
+          {activeModule === "resize"   && <ResizePanel   image={currentImage} />}
+          {activeModule === "crop"     && <CropPanel     image={currentImage} />}
+          {activeModule === "optimize" && <OptimizePanel image={currentImage} />}
+          {activeModule === "bgeffect" && <BgEffectPanel image={currentImage} />}
+        </ErrorBoundary>
       </motion.div>
     </AnimatePresence>
   );
@@ -114,13 +130,16 @@ function ResizePreview({
   previewUrl,
   settings,
   onUpdate,
+  userZoom,
+  panOffset,
 }: {
   image: ImageInfo;
   previewUrl: string;
   settings: ResizeSettings;
   onUpdate: (patch: Partial<ResizeSettings>) => void;
+  userZoom: number;
+  panOffset: { x: number; y: number };
 }) {
-  // Fill the checkerboard container entirely (absolute inset-0 in parent)
   const containerRef = useRef<HTMLDivElement>(null);
   const [cw, setCw] = useState(0);
   const [ch, setCh] = useState(0);
@@ -130,7 +149,7 @@ function ResizePreview({
     startY: number;
     startW: number;
     startH: number;
-    fixedScale: number; // px-per-image-px, constant for this drag
+    fixedScale: number;
     aspect: number;
     noUpscale: boolean;
     lockAspect: boolean;
@@ -148,17 +167,16 @@ function ResizePreview({
     return () => ro.disconnect();
   }, []);
 
-  // Scale based on original image to fit container with padding
   const PAD = 40;
-  const fixedScale = cw > 0
+  const fitScale = cw > 0
     ? Math.min((cw - PAD * 2) / image.width, (ch - PAD * 2) / image.height)
     : 0;
+  const fixedScale = fitScale * userZoom;
 
-  // Display dimensions for the current target (image renders AT these pixel dimensions)
   const dispW = settings.width * fixedScale;
   const dispH = settings.height * fixedScale;
-  const imgX = (cw - dispW) / 2;
-  const imgY = (ch - dispH) / 2;
+  const imgX = (cw - dispW) / 2 + panOffset.x;
+  const imgY = (ch - dispH) / 2 + panOffset.y;
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, handle: RHandle) => {
     e.preventDefault();
@@ -183,7 +201,6 @@ function ResizePreview({
     const d = dragRef.current;
     if (!d || d.fixedScale === 0) return;
 
-    // ×2: frame is centered so both sides move — handle tracks mouse 1:1
     const rawDx = (e.clientX - d.startX) / d.fixedScale;
     const rawDy = (e.clientY - d.startY) / d.fixedScale;
     const h = d.handle;
@@ -197,19 +214,16 @@ function ResizePreview({
     if (h.includes("n")) newH = d.startH - 2 * rawDy;
 
     if (d.lockAspect) {
-      // Lock: adjust the other dimension proportionally
       if (h === "n" || h === "s") {
         newW = newH * d.aspect;
       } else if (h === "e" || h === "w") {
         newH = newW / d.aspect;
       } else {
-        // Corner: scale uniformly by the larger ratio
         const ratio = Math.max(newW / d.startW, newH / d.startH);
         newW = d.startW * ratio;
         newH = d.startH * ratio;
       }
     }
-    // Unlock: each side changes independently — image will stretch visually
 
     newW = Math.max(1, Math.round(newW));
     newH = Math.max(1, Math.round(newH));
@@ -245,7 +259,6 @@ function ResizePreview({
     >
       {fixedScale > 0 && (
         <>
-          {/* Image rendered at target dimensions — objectFit:fill makes it stretch when unlocked */}
           <img
             src={previewUrl}
             alt="preview"
@@ -253,21 +266,19 @@ function ResizePreview({
             className="pointer-events-none absolute select-none rounded-lg shadow-md"
             style={{ left: imgX, top: imgY, width: dispW, height: dispH, objectFit: "fill" }}
           />
-          {/* Frame border */}
           <div
             className="pointer-events-none absolute rounded-[3px] border-2 border-primary/70"
             style={{ left: imgX, top: imgY, width: dispW, height: dispH }}
           />
-          {/* 8 handles */}
           {HANDLES.map(h => (
             <div
               key={h.id}
+              data-handle="true"
               className="absolute h-[9px] w-[9px] -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-primary bg-background shadow-sm hover:bg-primary/20 active:bg-primary/30"
               style={{ left: h.x, top: h.y, cursor: h.cursor }}
               onPointerDown={e => startDrag(e, h.id)}
             />
           ))}
-          {/* Dimension badge below image */}
           <div
             className="pointer-events-none absolute rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-mono text-foreground shadow-sm"
             style={{ left: imgX, top: imgY + dispH + 8 }}
@@ -282,18 +293,12 @@ function ResizePreview({
 
 function cropTransformStyle(transform: CropTransform) {
   switch (transform) {
-    case "rotate90":
-      return "rotate(90deg)";
-    case "rotate180":
-      return "rotate(180deg)";
-    case "rotate270":
-      return "rotate(270deg)";
-    case "fliph":
-      return "scaleX(-1)";
-    case "flipv":
-      return "scaleY(-1)";
-    default:
-      return "none";
+    case "rotate90":  return "rotate(90deg)";
+    case "rotate180": return "rotate(180deg)";
+    case "rotate270": return "rotate(270deg)";
+    case "fliph":     return "scaleX(-1)";
+    case "flipv":     return "scaleY(-1)";
+    default:          return "none";
   }
 }
 
@@ -324,9 +329,9 @@ function CropOverlay({
     region: CropRegion;
   } | null>(null);
 
-  const left = (region.x / image.width) * 100;
-  const top = (region.y / image.height) * 100;
-  const width = (region.w / image.width) * 100;
+  const left   = (region.x / image.width)  * 100;
+  const top    = (region.y / image.height) * 100;
+  const width  = (region.w / image.width)  * 100;
   const height = (region.h / image.height) * 100;
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>, handle: CropHandle) => {
@@ -341,7 +346,7 @@ function CropOverlay({
     const rect = overlayRef.current?.getBoundingClientRect();
     if (!drag || !rect) return;
 
-    const dx = ((event.clientX - drag.startX) / rect.width) * image.width;
+    const dx = ((event.clientX - drag.startX) / rect.width)  * image.width;
     const dy = ((event.clientY - drag.startY) / rect.height) * image.height;
     const minSize = Math.min(24, Math.max(1, Math.floor(Math.min(image.width, image.height) / 20)));
     let x1 = drag.region.x;
@@ -350,7 +355,7 @@ function CropOverlay({
     let y2 = drag.region.y + drag.region.h;
 
     if (drag.handle === "move") {
-      const nextX = Math.min(Math.max(0, drag.region.x + dx), image.width - drag.region.w);
+      const nextX = Math.min(Math.max(0, drag.region.x + dx), image.width  - drag.region.w);
       const nextY = Math.min(Math.max(0, drag.region.y + dy), image.height - drag.region.h);
       onChange(clampCrop({ ...drag.region, x: nextX, y: nextY }, image.width, image.height));
       return;
@@ -361,7 +366,7 @@ function CropOverlay({
     if (drag.handle.includes("n")) y1 += dy;
     if (drag.handle.includes("s")) y2 += dy;
 
-    x1 = Math.min(Math.max(0, x1), image.width - minSize);
+    x1 = Math.min(Math.max(0, x1), image.width  - minSize);
     y1 = Math.min(Math.max(0, y1), image.height - minSize);
     x2 = Math.min(Math.max(minSize, x2), image.width);
     y2 = Math.min(Math.max(minSize, y2), image.height);
@@ -387,13 +392,13 @@ function CropOverlay({
 
   const handles: Array<{ id: CropHandle; className: string }> = [
     { id: "nw", className: "-left-1.5 -top-1.5 cursor-nwse-resize" },
-    { id: "n", className: "left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize" },
+    { id: "n",  className: "left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize" },
     { id: "ne", className: "-right-1.5 -top-1.5 cursor-nesw-resize" },
-    { id: "e", className: "-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
+    { id: "e",  className: "-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
     { id: "se", className: "-bottom-1.5 -right-1.5 cursor-nwse-resize" },
-    { id: "s", className: "-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize" },
+    { id: "s",  className: "-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize" },
     { id: "sw", className: "-bottom-1.5 -left-1.5 cursor-nesw-resize" },
-    { id: "w", className: "-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
+    { id: "w",  className: "-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
   ];
 
   return (
@@ -410,6 +415,7 @@ function CropOverlay({
       <div className="absolute bg-black/45" style={{ left: 0, top: `${top + height}%`, width: "100%", bottom: 0 }} />
 
       <div
+        data-handle="true"
         className="absolute cursor-move border-2 border-primary bg-primary/5 shadow-[0_0_0_1px_rgba(255,255,255,0.75)]"
         style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
         onPointerDown={event => startDrag(event, "move")}
@@ -419,6 +425,7 @@ function CropOverlay({
         {handles.map(handle => (
           <div
             key={handle.id}
+            data-handle="true"
             className={cn(
               "absolute h-3 w-3 rounded-[2px] border border-white bg-primary shadow-sm",
               handle.className
@@ -431,23 +438,40 @@ function CropOverlay({
   );
 }
 
+const CHECKERBOARD = {
+  backgroundImage:
+    "linear-gradient(45deg,#e5e7eb 25%,transparent 25%)," +
+    "linear-gradient(-45deg,#e5e7eb 25%,transparent 25%)," +
+    "linear-gradient(45deg,transparent 75%,#e5e7eb 75%)," +
+    "linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
+  backgroundSize: "16px 16px",
+  backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
+} as const;
+
 function PreviewArea() {
-  const activeModule = useAppStore(state => state.activeModule);
-  const cropAngle = useAppStore(state => state.cropAngle);
-  const cropRegion = useAppStore(state => state.cropRegion);
-  const cropTransform = useAppStore(state => state.cropTransform);
-  const currentImage = useAppStore(state => state.currentImage);
-  const previewUrl = useAppStore(state => state.previewUrl);
-  const resizeSettings = useAppStore(state => state.resizeSettings);
-  const setCropRegion = useAppStore(state => state.setCropRegion);
-  const setCropAngle = useAppStore(state => state.setCropAngle);
-  const setCropTransform = useAppStore(state => state.setCropTransform);
-  const setCurrentImage = useAppStore(state => state.setCurrentImage);
+  const t = useT();
+  const activeModule    = useAppStore(state => state.activeModule);
+  const cropAngle       = useAppStore(state => state.cropAngle);
+  const cropRegion      = useAppStore(state => state.cropRegion);
+  const cropTransform   = useAppStore(state => state.cropTransform);
+  const currentImage    = useAppStore(state => state.currentImage);
+  const previewUrl      = useAppStore(state => state.previewUrl);
+  const resizeSettings  = useAppStore(state => state.resizeSettings);
+  const setCropRegion   = useAppStore(state => state.setCropRegion);
+  const setCropAngle    = useAppStore(state => state.setCropAngle);
+  const setCropTransform  = useAppStore(state => state.setCropTransform);
+  const setCurrentImage   = useAppStore(state => state.setCurrentImage);
   const setResizeSettings = useAppStore(state => state.setResizeSettings);
 
-  // Measure the available preview area so the crop container never overflows
   const previewAreaRef = useRef<HTMLDivElement>(null);
   const [areaSize, setAreaSize] = useState({ w: 0, h: 0 });
+
+  // Zoom & pan state
+  const [userZoom, setUserZoom] = useState(1.0);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<{ x0: number; y0: number; px0: number; py0: number } | null>(null);
+
   useLayoutEffect(() => {
     const el = previewAreaRef.current;
     if (!el) return;
@@ -458,72 +482,147 @@ function PreviewArea() {
     return () => ro.disconnect();
   }, []);
 
+  // Reset zoom/pan when image or active module changes
+  useEffect(() => {
+    setUserZoom(1.0);
+    setPan({ x: 0, y: 0 });
+  }, [currentImage?.path, activeModule]);
+
+  // Non-passive wheel handler for zoom
+  useEffect(() => {
+    const el = previewAreaRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setUserZoom(prev => Math.max(0.05, Math.min(20, prev * factor)));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
+  // Keyboard zoom shortcuts
+  useEffect(() => {
+    if (!currentImage) return;
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        setUserZoom(prev => Math.min(20, prev * 1.25));
+      } else if (ctrl && e.key === "-") {
+        e.preventDefault();
+        setUserZoom(prev => Math.max(0.05, prev / 1.25));
+      } else if (ctrl && e.key === "0") {
+        e.preventDefault();
+        setUserZoom(1);
+        setPan({ x: 0, y: 0 });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [!!currentImage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!currentImage || !previewUrl) return null;
+
   const region = cropRegion ?? { x: 0, y: 0, w: currentImage.width, h: currentImage.height };
-  // effective rotation angle: quick-rotate transforms take precedence over the arbitrary angle slider
   const transformAngle = cropTransform === "rotate90" ? 90 : cropTransform === "rotate180" ? 180 : cropTransform === "rotate270" ? 270 : 0;
   const effectiveAngle = transformAngle || cropAngle;
   const cropBounds = rotatedBounds(currentImage.width, currentImage.height, effectiveAngle);
 
-  // Compute explicit pixel size so the container fits within the available area on both axes.
-  // Using a fixed `width` + CSS max-h-full breaks aspect ratio when height is the constraint.
-  const PAD = 48; // p-6 = 24px × 2
-  const availW = Math.max(1, areaSize.w - PAD);
-  const availH = Math.max(1, areaSize.h - PAD);
-  const cropDisplayScale = areaSize.w > 0
-    ? Math.min(1, availW / cropBounds.width, availH / cropBounds.height)
+  // Unified fit scale: scale the "source" to fill the available area at zoom=1
+  const PAD = 48;
+  const srcW = activeModule === "crop" ? cropBounds.width  : currentImage.width;
+  const srcH = activeModule === "crop" ? cropBounds.height : currentImage.height;
+  const fitScale = areaSize.w > 0
+    ? Math.min((areaSize.w - PAD) / srcW, (areaSize.h - PAD) / srcH)
     : 1;
-  const cropDisplayW = cropBounds.width * cropDisplayScale;
-  const cropDisplayH = cropBounds.height * cropDisplayScale;
+  const displayScale = fitScale * userZoom;
+  const displayW = srcW * displayScale;
+  const displayH = srcH * displayScale;
+  const imgLeft  = (areaSize.w - displayW) / 2 + pan.x;
+  const imgTop   = (areaSize.h - displayH) / 2 + pan.y;
+  const displayPct = Math.round(displayScale * 100);
+  const isAtFit = Math.abs(userZoom - 1) < 0.02 && pan.x === 0 && pan.y === 0;
 
-  const cropPreviewStyle = activeModule === "crop" ? {
-    width: `${cropDisplayW}px`,
-    height: `${cropDisplayH}px`,
-  } : undefined;
+  // Crop-mode image transform (rotation / flip applied inside the container)
   const cropImageStyle = activeModule === "crop" ? {
     transform: cropTransform ? cropTransformStyle(cropTransform) : `rotate(${cropAngle}deg)`,
-    width: `${(currentImage.width / cropBounds.width) * 100}%`,
+    width:  `${(currentImage.width  / cropBounds.width)  * 100}%`,
     height: `${(currentImage.height / cropBounds.height) * 100}%`,
   } : undefined;
+
+  // Drag-to-pan handlers on the outer area
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as Element).closest('button,[data-handle="true"]')) return;
+    panStartRef.current = { x0: e.clientX, y0: e.clientY, px0: pan.x, py0: pan.y };
+    setIsPanning(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panStartRef.current) return;
+    setPan({
+      x: panStartRef.current.px0 + (e.clientX - panStartRef.current.x0),
+      y: panStartRef.current.py0 + (e.clientY - panStartRef.current.y0),
+    });
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    panStartRef.current = null;
+    setIsPanning(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
 
   return (
     <motion.div className="relative flex flex-1 flex-col overflow-hidden"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-      <div ref={previewAreaRef} className="relative flex flex-1 items-center justify-center overflow-hidden p-6"
-        style={{
-          backgroundImage:
-            "linear-gradient(45deg,#e5e7eb 25%,transparent 25%)," +
-            "linear-gradient(-45deg,#e5e7eb 25%,transparent 25%)," +
-            "linear-gradient(45deg,transparent 75%,#e5e7eb 75%)," +
-            "linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
-          backgroundSize: "16px 16px",
-          backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
-        }}>
+
+      {/* Preview canvas */}
+      <div
+        ref={previewAreaRef}
+        className={cn(
+          "relative flex-1 overflow-hidden select-none",
+          isPanning ? "cursor-grabbing" : userZoom > 1.02 ? "cursor-grab" : ""
+        )}
+        style={CHECKERBOARD}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
         <div className="absolute inset-0 bg-white/60 dark:bg-black/60" />
+
         {activeModule === "resize" && resizeSettings ? (
           <ResizePreview
             image={currentImage}
             previewUrl={previewUrl}
             settings={resizeSettings}
             onUpdate={patch => setResizeSettings({ ...resizeSettings, ...patch })}
+            userZoom={userZoom}
+            panOffset={pan}
           />
         ) : (
+          /* All other modes: image absolutely positioned with unified scale */
           <div
-            className="relative z-10 overflow-hidden rounded-lg shadow-md"
-            style={cropPreviewStyle}
+            className="absolute z-10 overflow-hidden rounded-lg shadow-md"
+            style={{ left: imgLeft, top: imgTop, width: displayW, height: displayH }}
           >
             <img
               src={previewUrl}
               alt="preview"
+              draggable={false}
               className={cn(
-                "block select-none object-contain",
-                activeModule === "crop" ? "absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2" : "max-h-full max-w-full"
+                "block select-none",
+                activeModule === "crop"
+                  ? "absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2"
+                  : "w-full h-full object-contain"
               )}
               style={cropImageStyle}
             />
             {activeModule === "crop" && (
               <button
                 type="button"
+                aria-label="Rotate preview 90°"
                 title="Rotate preview"
                 onClick={() => {
                   setCropTransform(null);
@@ -531,7 +630,7 @@ function PreviewArea() {
                 }}
                 className="absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:text-foreground"
               >
-                <RotateCw size={16} />
+                <RotateCw size={16} aria-hidden="true" />
               </button>
             )}
             {activeModule === "crop" && !cropTransform && cropAngle === 0 && (
@@ -543,14 +642,49 @@ function PreviewArea() {
             )}
           </div>
         )}
+
+        {/* Zoom controls */}
+        <div className="absolute bottom-3 right-3 z-30 flex items-center rounded-md border border-border bg-background/90 shadow-sm backdrop-blur-sm">
+          <button
+            className="flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setUserZoom(prev => Math.max(0.05, prev / 1.25))}
+            aria-label="Zoom out (Ctrl+-)"
+            title="Zoom out (Ctrl+-)"
+          >
+            <Minus size={11} aria-hidden="true" />
+          </button>
+          <button
+            className={cn(
+              "min-w-[44px] px-1 py-0.5 font-mono text-[10px] transition-colors",
+              isAtFit ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => { setUserZoom(1); setPan({ x: 0, y: 0 }); }}
+            title="Fit to view (Ctrl+0)"
+          >
+            {displayPct}%
+          </button>
+          <button
+            className="flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setUserZoom(prev => Math.min(20, prev * 1.25))}
+            aria-label="Zoom in (Ctrl+=)"
+            title="Zoom in (Ctrl+=)"
+          >
+            <Plus size={11} aria-hidden="true" />
+          </button>
+        </div>
       </div>
+
+      {/* Info bar */}
       <div className="flex items-center justify-between border-t border-border bg-background px-4 py-2 shrink-0">
         <span className="text-[11px] text-muted-foreground font-mono">
           {currentImage.width} × {currentImage.height}px · {currentImage.format} · {formatBytes(currentImage.file_size)}
         </span>
-        <button onClick={() => setCurrentImage(null)}
-          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1">
-          × Clear
+        <button
+          onClick={() => setCurrentImage(null)}
+          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1"
+          aria-label="Clear image"
+        >
+          {t("dropzone.clear")}
         </button>
       </div>
     </motion.div>
@@ -558,11 +692,10 @@ function PreviewArea() {
 }
 
 export default function App() {
-  const theme = useAppStore(state => state.theme);
+  const theme        = useAppStore(state => state.theme);
   const activeModule = useAppStore(state => state.activeModule);
   const currentImage = useAppStore(state => state.currentImage);
   const [dragging, setDragging] = useState(false);
-  // Keep a ref so the single drag-drop listener always reads the latest module
   const activeModuleRef = useRef(activeModule);
   activeModuleRef.current = activeModule;
 
@@ -595,21 +728,22 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Tauri drag-drop — registered once; reads activeModuleRef so the closure never goes stale
+  // Tauri drag-drop — registered once; reads activeModuleRef to avoid stale closure
   useEffect(() => {
     const win = getCurrentWebviewWindow();
     const unsubs: (() => void)[] = [];
 
     win.onDragDropEvent(event => {
       const type = event.payload.type;
-      const isBatch = activeModuleRef.current === "batch";
+      const mod  = activeModuleRef.current;
+      const isBatch = mod === "batch";
       if (type === "enter" || type === "over") {
         if (!isBatch) setDragging(true);
       } else if (type === "leave") {
         setDragging(false);
       } else if (type === "drop") {
         setDragging(false);
-        if (isBatch) return; // BatchPanel has its own handler
+        if (isBatch) return;
         const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
         const img = paths.find(isImagePath);
         if (img) loadImage(img);
@@ -619,18 +753,23 @@ export default function App() {
     return () => unsubs.forEach(fn => fn());
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const isFullWidth = activeModule === "batch" || activeModule === "settings";
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground">
       <Titlebar />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex flex-1 overflow-hidden">
+        <main className="flex flex-1 overflow-hidden" role="main">
           <AnimatePresence mode="wait">
-            {activeModule === "batch" ? (
-              <motion.div key="batch" className="flex flex-1 overflow-hidden"
+            {isFullWidth ? (
+              <motion.div key={activeModule} className="flex flex-1 overflow-hidden"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}>
-                <BatchPanel />
+                <ErrorBoundary label={activeModule}>
+                  {activeModule === "batch"    && <BatchPanel />}
+                  {activeModule === "settings" && <SettingsPanel />}
+                </ErrorBoundary>
               </motion.div>
             ) : currentImage ? (
               <motion.div key="workspace" className="flex flex-1 overflow-hidden"

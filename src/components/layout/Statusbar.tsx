@@ -1,11 +1,17 @@
 import { useAppStore } from "@/store/app";
+import { useT } from "@/lib/i18n";
 import { formatBytes } from "@/lib/invoke";
 
 export function Statusbar() {
+  const t            = useT();
   const currentImage = useAppStore(state => state.currentImage);
 
   return (
-    <div className="flex h-6 items-center justify-between border-t border-border bg-background px-3 shrink-0">
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-6 items-center justify-between border-t border-border bg-background px-3 shrink-0"
+    >
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground tabular-nums">
         {currentImage ? (
           <>
@@ -22,7 +28,7 @@ export function Statusbar() {
             )}
           </>
         ) : (
-          <span>Ready</span>
+          <span>{t("status.ready")}</span>
         )}
       </div>
     </div>

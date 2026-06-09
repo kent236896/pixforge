@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { ImageInfo } from "@/lib/invoke";
+import { type Locale, detectLocale } from "@/lib/i18n";
 
-export type Module = "convert" | "resize" | "crop" | "batch" | "optimize" | "bgeffect";
+export type Module = "convert" | "resize" | "crop" | "batch" | "optimize" | "bgeffect" | "settings";
 export type Theme = "light" | "dark" | "system";
 export interface CropRegion {
   x: number;
@@ -20,6 +21,7 @@ export interface ResizeSettings {
 interface AppState {
   activeModule: Module;
   theme: Theme;
+  locale: Locale;
   currentImage: ImageInfo | null;
   previewUrl: string | null;
   cropRegion: CropRegion | null;
@@ -28,6 +30,7 @@ interface AppState {
   resizeSettings: ResizeSettings | null;
   setModule: (module: Module) => void;
   setTheme: (theme: Theme) => void;
+  setLocale: (locale: Locale) => void;
   setCurrentImage: (info: ImageInfo | null, previewUrl?: string | null) => void;
   setPreviewUrl: (url: string | null) => void;
   setCropRegion: (region: CropRegion) => void;
@@ -39,6 +42,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   activeModule: "convert",
   theme: "system",
+  locale: detectLocale(),
   currentImage: null,
   previewUrl: null,
   cropRegion: null,
@@ -47,6 +51,7 @@ export const useAppStore = create<AppState>((set) => ({
   resizeSettings: null,
   setModule: (module) => set({ activeModule: module }),
   setTheme: (theme) => set({ theme }),
+  setLocale: (locale) => set({ locale }),
   setPreviewUrl: (url) => set({ previewUrl: url }),
   setCurrentImage: (info, previewUrl = null) => set({
     currentImage: info,
