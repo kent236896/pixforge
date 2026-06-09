@@ -1,5 +1,10 @@
 mod image_engine;
-use image_engine::{ConvertParams, CropRotateParams, ResizeParams};
+use image_engine::{BatchOperation, BgRemoveParams, ConvertParams, CropRotateParams, EffectParams, ResizeParams};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{Emitter, Manager};
+
+struct BatchCancelState(Mutex<Arc<AtomicBool>>);
 
 // ─── Stage-1 ───────────────────────────────────────────────────────────────
 
@@ -63,11 +68,90 @@ async fn optimize_image(
         .map_err(|e| e.to_string())?
 }
 
+// ─── BgEffect ──────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn bg_remove_image(
+    app: tauri::AppHandle,
+    src: String,
+    dst: String,
+    params: BgRemoveParams,
+) -> Result<image_engine::ProcessResult, String> {
+    let model_path = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("models")
+        .join("silueta.onnx")
+        .to_string_lossy()
+        .to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        image_engine::do_bg_remove(&src, &dst, params, &model_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn apply_effect(
+    src: String,
+    dst: String,
+    params: EffectParams,
+) -> Result<image_engine::ProcessResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        image_engine::do_apply_effect(&src, &dst, params)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ─── Utilities ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn expand_drop_paths(paths: Vec<String>) -> Vec<String> {
+    image_engine::expand_drop_paths(paths)
+}
+
+// ─── Batch ─────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn run_batch(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BatchCancelState>,
+    src_paths: Vec<String>,
+    op: BatchOperation,
+    out_dir: String,
+    name_template: String,
+) -> Result<(), String> {
+    let cancel = {
+        let mut guard = state.0.lock().map_err(|_| "State lock poisoned")?;
+        let token = Arc::new(AtomicBool::new(false));
+        *guard = token.clone();
+        token
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        image_engine::run_batch(src_paths, op, &out_dir, &name_template, cancel, |result| {
+            let _ = app.emit("batch://progress", result);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_batch(state: tauri::State<'_, BatchCancelState>) {
+    if let Ok(guard) = state.0.lock() {
+        guard.store(true, Ordering::Relaxed);
+    }
+}
+
 // ─── App entry ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(BatchCancelState(Mutex::new(Arc::new(AtomicBool::new(false)))))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +161,11 @@ pub fn run() {
             resize_image,
             crop_rotate_image,
             optimize_image,
+            bg_remove_image,
+            apply_effect,
+            expand_drop_paths,
+            run_batch,
+            cancel_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ImageInfo } from "@/lib/invoke";
 
-export type Module = "convert" | "resize" | "crop" | "batch" | "optimize";
+export type Module = "convert" | "resize" | "crop" | "batch" | "optimize" | "bgeffect";
 export type Theme = "light" | "dark" | "system";
 export interface CropRegion {
   x: number;
@@ -29,6 +29,7 @@ interface AppState {
   setModule: (module: Module) => void;
   setTheme: (theme: Theme) => void;
   setCurrentImage: (info: ImageInfo | null, previewUrl?: string | null) => void;
+  setPreviewUrl: (url: string | null) => void;
   setCropRegion: (region: CropRegion) => void;
   setCropTransform: (transform: CropTransform) => void;
   setCropAngle: (angle: number) => void;
@@ -46,6 +47,7 @@ export const useAppStore = create<AppState>((set) => ({
   resizeSettings: null,
   setModule: (module) => set({ activeModule: module }),
   setTheme: (theme) => set({ theme }),
+  setPreviewUrl: (url) => set({ previewUrl: url }),
   setCurrentImage: (info, previewUrl = null) => set({
     currentImage: info,
     previewUrl,

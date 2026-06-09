@@ -25,3 +25,6 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 resvg = "0.44"
 base64 = "0.22"
+imageproc = "0.25"
+rayon = "1"
+ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }

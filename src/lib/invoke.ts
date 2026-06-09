@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
+export { listen } from "@tauri-apps/api/event";
+export type { UnlistenFn } from "@tauri-apps/api/event";
 
 export interface ImageInfo {
   path: string;
@@ -72,6 +74,85 @@ export function cropRotateImage(src: string, dst: string, params: CropRotatePara
 
 export function optimizeImage(src: string, dst: string, quality: number): Promise<OptimizeResult> {
   return invoke("optimize_image", { src, dst, quality });
+}
+
+// ─── BgEffect ──────────────────────────────────────────────────────────────
+
+export interface BgRemoveParams {
+  threshold: number;              // 0.0–1.0
+  bg_mode: "transparent" | "color";
+  bg_color?: [number, number, number];
+}
+
+export interface EffectParams {
+  effect: string;
+  params: Record<string, number>;
+}
+
+export function bgRemoveImage(src: string, dst: string, params: BgRemoveParams): Promise<ProcessResult> {
+  return invoke("bg_remove_image", { src, dst, params });
+}
+
+export function applyEffect(src: string, dst: string, params: EffectParams): Promise<ProcessResult> {
+  return invoke("apply_effect", { src, dst, params });
+}
+
+// ─── Batch ─────────────────────────────────────────────────────────────────
+
+export interface BatchConvertParams {
+  format: string;
+  quality: number;
+}
+
+export interface BatchOperation {
+  kind: "convert" | "resize" | "optimize";
+  convert?: BatchConvertParams;
+  resize?: ResizeParams;
+  quality?: number;
+}
+
+export interface BatchFileResult {
+  index: number;
+  src_path: string;
+  status: "processing" | "done" | "error";
+  output_path: string | null;
+  error: string | null;
+  done: number;
+  total: number;
+}
+
+export function expandDropPaths(paths: string[]): Promise<string[]> {
+  return invoke("expand_drop_paths", { paths });
+}
+
+export function runBatch(
+  srcPaths: string[],
+  op: BatchOperation,
+  outDir: string,
+  nameTemplate: string,
+): Promise<void> {
+  return invoke("run_batch", { srcPaths, op, outDir, nameTemplate });
+}
+
+export function cancelBatch(): Promise<void> {
+  return invoke("cancel_batch");
+}
+
+export async function pickDirectory(): Promise<string | null> {
+  const result = await open({ directory: true, multiple: false });
+  return typeof result === "string" ? result : null;
+}
+
+export async function pickOpenImages(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: "Images",
+      extensions: ["png","jpg","jpeg","webp","avif","gif","tiff","tif","bmp","svg","ico"],
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
 }
 
 // ─── Save dialog helper ────────────────────────────────────────────────────

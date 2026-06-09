@@ -4,6 +4,7 @@ import {
   Crop,
   Layers,
   Zap,
+  Sparkles,
   Settings,
   Moon,
   Sun,
@@ -18,6 +19,7 @@ const NAV_ITEMS: { id: Module; icon: React.ElementType; label: string; labelZh: 
   { id: "crop", icon: Crop, label: "Crop & Rotate", labelZh: "裁剪旋转" },
   { id: "batch", icon: Layers, label: "Batch", labelZh: "批量处理" },
   { id: "optimize", icon: Zap, label: "Optimize", labelZh: "压缩优化" },
+  { id: "bgeffect", icon: Sparkles, label: "BgEffect", labelZh: "背景特效" },
 ];
 
 const THEME_ICONS = {

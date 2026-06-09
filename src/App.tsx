@@ -11,6 +11,8 @@ import { ConvertPanel } from "@/features/convert/ConvertPanel";
 import { ResizePanel } from "@/features/resize/ResizePanel";
 import { CropPanel } from "@/features/crop/CropPanel";
 import { OptimizePanel } from "@/features/optimize/OptimizePanel";
+import { BgEffectPanel } from "@/features/bg_effect/BgEffectPanel";
+import { BatchPanel } from "@/features/batch/BatchPanel";
 import { RotateCw, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CropRegion, CropTransform, ResizeSettings } from "@/store/app";
@@ -89,11 +91,7 @@ function ActivePanel() {
         {activeModule === "resize"   && <ResizePanel   image={currentImage} />}
         {activeModule === "crop"     && <CropPanel     image={currentImage} />}
         {activeModule === "optimize" && <OptimizePanel image={currentImage} />}
-        {activeModule === "batch"    && (
-          <div className="flex flex-1 items-center justify-center p-4">
-            <p className="text-sm text-muted-foreground">Batch — coming in Stage 4</p>
-          </div>
-        )}
+        {activeModule === "bgeffect" && <BgEffectPanel image={currentImage} />}
       </motion.div>
     </AnimatePresence>
   );
@@ -561,8 +559,12 @@ function PreviewArea() {
 
 export default function App() {
   const theme = useAppStore(state => state.theme);
+  const activeModule = useAppStore(state => state.activeModule);
   const currentImage = useAppStore(state => state.currentImage);
   const [dragging, setDragging] = useState(false);
+  // Keep a ref so the single drag-drop listener always reads the latest module
+  const activeModuleRef = useRef(activeModule);
+  activeModuleRef.current = activeModule;
 
   // Theme sync
   useEffect(() => {
@@ -593,19 +595,21 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Tauri drag-drop events
+  // Tauri drag-drop — registered once; reads activeModuleRef so the closure never goes stale
   useEffect(() => {
     const win = getCurrentWebviewWindow();
     const unsubs: (() => void)[] = [];
 
     win.onDragDropEvent(event => {
       const type = event.payload.type;
+      const isBatch = activeModuleRef.current === "batch";
       if (type === "enter" || type === "over") {
-        setDragging(true);
+        if (!isBatch) setDragging(true);
       } else if (type === "leave") {
         setDragging(false);
       } else if (type === "drop") {
         setDragging(false);
+        if (isBatch) return; // BatchPanel has its own handler
         const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
         const img = paths.find(isImagePath);
         if (img) loadImage(img);
@@ -613,7 +617,7 @@ export default function App() {
     }).then(fn => unsubs.push(fn));
 
     return () => unsubs.forEach(fn => fn());
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground">
@@ -622,7 +626,13 @@ export default function App() {
         <Sidebar />
         <main className="flex flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
-            {currentImage ? (
+            {activeModule === "batch" ? (
+              <motion.div key="batch" className="flex flex-1 overflow-hidden"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}>
+                <BatchPanel />
+              </motion.div>
+            ) : currentImage ? (
               <motion.div key="workspace" className="flex flex-1 overflow-hidden"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}>
@@ -644,7 +654,7 @@ export default function App() {
         </main>
       </div>
       <Statusbar />
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 }
