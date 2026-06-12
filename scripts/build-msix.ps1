@@ -73,40 +73,40 @@ Write-Host "  OutDir    : $OUTDIR"
 Write-Host ""
 
 # -- 0. Ensure Rust target -----------------------------------------------------
-Write-Host "[1/5] Checking Rust target..." -ForegroundColor Yellow
+Write-Host "[1/4] Checking Rust target..." -ForegroundColor Yellow
 $installed = rustup target list --installed 2>&1
 if ($installed -notmatch [regex]::Escape($RUST_TARGET)) {
     Write-Host "      Installing $RUST_TARGET..." -ForegroundColor Gray
     rustup target add $RUST_TARGET
 }
 
-# -- 1. Build frontend ---------------------------------------------------------
-Write-Host "[2/5] Building frontend..." -ForegroundColor Yellow
+# -- 1. Build frontend + compile binary via Tauri CLI --------------------------
+# Must go through the Tauri CLI (not raw cargo build) so it correctly sets the
+# production environment. Raw cargo build may inherit TAURI_DEV_URL from a
+# previous dev session, causing the released binary to try to connect to the
+# Vite dev server (localhost:1420) instead of using embedded assets.
+#
+# --bundles nsis may fail if NSIS is not installed -- that is fine.
+# The cargo compilation runs first and produces the binary regardless.
+Write-Host "[2/4] Building via Tauri CLI (production mode)..." -ForegroundColor Yellow
 Set-Location $ROOT
-pnpm build
-if ($LASTEXITCODE -ne 0) { throw "Frontend build failed" }
+$ErrorActionPreference = "Continue"
+pnpm tauri build --target $RUST_TARGET --bundles nsis
+$tauri_exit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
 
-# -- 2. Compile Tauri binary via cargo -----------------------------------------
-# We bypass pnpm tauri build because Tauri 2 has no --bundles msix on Windows.
-# cargo build reads tauri.conf.json and embeds the frontend dist at compile time.
-Write-Host "[3/5] Compiling Tauri binary (cargo build --release)..." -ForegroundColor Yellow
-$env:TAURI_ENV = "production"
-Push-Location (Join-Path $ROOT "src-tauri")
-cargo build --release --target $RUST_TARGET
-$exitCode = $LASTEXITCODE
-Pop-Location
-if ($exitCode -ne 0) { throw "cargo build failed" }
-
-$releaseDir = Join-Path $ROOT "src-tauri\target\$RUST_TARGET\release"
-$exePath    = Join-Path $releaseDir "pixforge.exe"
+$exePath = Join-Path $ROOT "src-tauri\target\$RUST_TARGET\release\pixforge.exe"
 if (-not (Test-Path $exePath)) {
-    throw "Binary not found at $exePath. Check src-tauri/Cargo.toml [package].name."
+    throw "Binary not found after tauri build (exit $tauri_exit) -- compilation failed, check output above."
 }
 $exeSize = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
 Write-Host "      Binary : pixforge.exe ($exeSize MB)" -ForegroundColor Gray
+if ($tauri_exit -ne 0) {
+    Write-Host "      (NSIS bundle step failed -- NSIS may not be installed, continuing with raw binary)" -ForegroundColor DarkYellow
+}
 
 # -- 3. Stage MSIX layout ------------------------------------------------------
-Write-Host "[4/5] Staging MSIX package layout..." -ForegroundColor Yellow
+Write-Host "[3/4] Staging MSIX package layout..." -ForegroundColor Yellow
 
 $stageDir  = Join-Path $ROOT "dist-release\msix-stage"
 $assetsDir = Join-Path $stageDir "Assets"
@@ -203,7 +203,7 @@ $appxManifest | Out-File -FilePath (Join-Path $stageDir "AppxManifest.xml") -Enc
 Write-Host "      Stage : $stageDir" -ForegroundColor Gray
 
 # -- 4. Locate makeappx.exe ----------------------------------------------------
-Write-Host "[5/5] Packing MSIX with makeappx.exe..." -ForegroundColor Yellow
+Write-Host "[4/4] Packing MSIX with makeappx.exe..." -ForegroundColor Yellow
 
 $sdkBinRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
 $makeappx   = $null
@@ -270,19 +270,24 @@ if (-not $SkipSign) {
     # Trust the cert locally so Add-AppPackage works
     $trusted = $false
 
-    # Primary: LocalMachine\TrustedPeople (required for sideloading, needs admin)
+    # Root = trust the CA chain; TrustedPeople = allow sideloading this publisher
+    # Both are needed for self-signed MSIX without Developer Mode.
     try {
-        $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
-        $store.Open("ReadWrite")
-        $store.Add($cert)
-        $store.Close()
-        Write-Host "  Trusted: LocalMachine\TrustedPeople (sideloading enabled)" -ForegroundColor Green
+        $storeRoot = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+        $storeRoot.Open("ReadWrite")
+        $storeRoot.Add($cert)
+        $storeRoot.Close()
+        $storeTP = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
+        $storeTP.Open("ReadWrite")
+        $storeTP.Add($cert)
+        $storeTP.Close()
+        Write-Host "  Trusted: LocalMachine\Root + TrustedPeople" -ForegroundColor Green
         $trusted = $true
     } catch {
-        Write-Host "  LocalMachine\TrustedPeople requires admin -- trying fallback" -ForegroundColor DarkYellow
+        Write-Host "  LocalMachine stores require admin -- trying CurrentUser fallback" -ForegroundColor DarkYellow
     }
 
-    # Fallback: CurrentUser\Root (no admin required)
+    # Fallback: CurrentUser\Root (no admin required, covers the CA chain)
     if (-not $trusted) {
         try {
             $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
@@ -296,7 +301,7 @@ if (-not $SkipSign) {
         }
     }
 
-    # Sign the MSIX
+    # Sign the MSIX using the cert thumbprint (more reliable than /f pfx approach)
     $signtool = $null
     if (Test-Path $sdkBinRoot) {
         $signtool = Get-ChildItem $sdkBinRoot -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
@@ -304,11 +309,85 @@ if (-not $SkipSign) {
             Sort-Object FullName -Descending |
             Select-Object -First 1 -ExpandProperty FullName
     }
-    if (-not $signtool) { throw "signtool.exe not found -- install Windows SDK" }
+    # Fallback: signtool from PATH
+    if (-not $signtool) {
+        $fromPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
+        if ($fromPath) { $signtool = $fromPath.Source }
+    }
+    if (-not $signtool) { throw "signtool.exe not found -- install Windows SDK (winget install Microsoft.WindowsSDK.10.0.26100)" }
+    Write-Host "  signtool : $signtool" -ForegroundColor Gray
 
-    & $signtool sign /fd sha256 /f $pfxFile /p $CertPassword "$dest"
-    if ($LASTEXITCODE -ne 0) { throw "MSIX signing failed" }
-    Write-Host "  Signed OK" -ForegroundColor Green
+    # Sign using thumbprint -- cert is already in CurrentUser\My, no PFX password on command line
+    $thumbprint = $cert.Thumbprint
+    Write-Host "  Thumbprint: $thumbprint" -ForegroundColor Gray
+    & "$signtool" sign /v /fd SHA256 /sha1 $thumbprint "$dest"
+    if ($LASTEXITCODE -ne 0) { throw "signtool sign failed (exit $LASTEXITCODE)" }
+
+    # Verify the signature was actually embedded
+    & "$signtool" verify /pa "$dest"
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool verify failed -- MSIX appears unsigned despite sign step succeeding. Check output above."
+    }
+    Write-Host "  Signed and verified OK" -ForegroundColor Green
+
+    # Generate companion install script for target machines
+    $installScript = @"
+# PixForge test-install script
+# Run on the TARGET machine (not the build machine).
+# If prompted by UAC, click Yes so the cert can be installed in TrustedPeople.
+#
+# Usage:
+#   .\install.ps1             -- install cert + MSIX
+#   .\install.ps1 -Uninstall  -- remove the app
+
+param([switch]`$Uninstall)
+
+`$pkgName = "DF1049EA.PixForge"
+`$cerFile  = Join-Path `$PSScriptRoot "PixForge-test.cer"
+`$msixFile = Get-ChildItem `$PSScriptRoot -Filter "PixForge_*.msix" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+
+if (`$Uninstall) {
+    Get-AppxPackage `$pkgName -ErrorAction SilentlyContinue | Remove-AppxPackage
+    Write-Host "PixForge uninstalled." -ForegroundColor Green
+    exit 0
+}
+
+if (-not `$msixFile) { Write-Host "No PixForge_*.msix found next to this script." -ForegroundColor Red; exit 1 }
+
+# -- Install certificate -------------------------------------------------------
+if (Test-Path `$cerFile) {
+    `$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (`$isAdmin) {
+        # Root = trust the CA chain; TrustedPeople = allow sideloading this publisher
+        Import-Certificate -FilePath `$cerFile -CertStoreLocation "Cert:\LocalMachine\Root" | Out-Null
+        Import-Certificate -FilePath `$cerFile -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
+        Write-Host "Cert installed: LocalMachine\Root + TrustedPeople" -ForegroundColor Green
+    } else {
+        # Re-launch as admin so both stores are accessible
+        Write-Host "Requesting admin to install cert..." -ForegroundColor Yellow
+        `$cmd = "Import-Certificate -FilePath '`$cerFile' -CertStoreLocation 'Cert:\LocalMachine\Root'; Import-Certificate -FilePath '`$cerFile' -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople'"
+        Start-Process powershell -ArgumentList "-NoProfile -Command `$cmd" -Verb RunAs -Wait
+        Write-Host "Cert installed (via admin)." -ForegroundColor Green
+    }
+} else {
+    Write-Host "PixForge-test.cer not found -- skipping cert install." -ForegroundColor Yellow
+    Write-Host "The MSIX may fail to install unless the cert is trusted on this machine." -ForegroundColor Yellow
+}
+
+# -- Install MSIX --------------------------------------------------------------
+Write-Host "Installing `$([IO.Path]::GetFileName(`$msixFile))..." -ForegroundColor Cyan
+Add-AppxPackage -Path `$msixFile
+if (`$?) {
+    Write-Host "PixForge installed successfully." -ForegroundColor Green
+} else {
+    Write-Host "Installation failed. Try enabling Developer Mode:" -ForegroundColor Red
+    Write-Host "  Settings > Privacy & Security > For developers > Developer Mode" -ForegroundColor DarkGray
+    Write-Host "Then run:  Add-AppxPackage -AllowUnsigned -Path '`$msixFile'" -ForegroundColor DarkGray
+}
+"@
+    $installScriptPath = Join-Path $OUTDIR "install.ps1"
+    $installScript | Out-File -FilePath $installScriptPath -Encoding utf8 -Force
+    Write-Host "  install.ps1 generated for target machines" -ForegroundColor Gray
 }
 
 # -- Done ----------------------------------------------------------------------
@@ -317,29 +396,30 @@ Write-Host ""
 Write-Host "=== Build complete ===" -ForegroundColor Green
 Write-Host "  MSIX : $dest  ($size MB)"
 if (-not $SkipSign) {
-    Write-Host "  PFX  : $(Join-Path $OUTDIR 'PixForge-test.pfx')  (password: $CertPassword)"
-    Write-Host "  CER  : $(Join-Path $OUTDIR 'PixForge-test.cer')"
+    Write-Host "  PFX     : $(Join-Path $OUTDIR 'PixForge-test.pfx')  (password: $CertPassword)"
+    Write-Host "  CER     : $(Join-Path $OUTDIR 'PixForge-test.cer')"
+    Write-Host "  install : $(Join-Path $OUTDIR 'install.ps1')"
 }
 Write-Host ""
 
 if (-not $SkipSign) {
     Write-Host "--- Install on THIS machine ---" -ForegroundColor Cyan
-    Write-Host "  Double-click the .msix file, or run:"
-    Write-Host "    Add-AppPackage -Path ""$dest"""
+    Write-Host "    Add-AppxPackage -Path ""$dest"""
     Write-Host ""
-    Write-Host "--- Install cert on ANOTHER test machine (run as Admin) ---" -ForegroundColor Cyan
-    Write-Host "  Copy PixForge-test.cer to the target machine, then run:"
-    Write-Host "    Import-Certificate -FilePath PixForge-test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople"
-    Write-Host "  Then install the .msix normally."
+    Write-Host "--- Install on ANOTHER test machine ---" -ForegroundColor Cyan
+    Write-Host "  Copy these three files to the target machine:"
+    Write-Host "    PixForge_${VERSION}_${Target}.msix"
+    Write-Host "    PixForge-test.cer"
+    Write-Host "    install.ps1"
+    Write-Host "  Then run (PowerShell, no admin needed -- script auto-elevates for cert):"
+    Write-Host "    .\install.ps1"
     Write-Host ""
-    Write-Host "--- Upload to Microsoft Store (no cert needed) ---" -ForegroundColor Cyan
+    Write-Host "--- Upload to Microsoft Store (unsigned) ---" -ForegroundColor Cyan
     Write-Host "  Run:  pnpm build:msix -- -SkipSign"
-    Write-Host "  Then upload the unsigned MSIX to Partner Center."
     Write-Host "  Store re-signs with: $PUBLISHER_DN"
 } else {
     Write-Host "--- Upload to Microsoft Store ---" -ForegroundColor Cyan
-    Write-Host "  Log in to https://partner.microsoft.com/dashboard"
-    Write-Host "  PixForge > Submissions > Packages > Upload $msixName"
+    Write-Host "  Partner Center > PixForge > Packages > Upload $msixName"
     Write-Host "  Store signs with: $PUBLISHER_DN"
 }
 Write-Host ""

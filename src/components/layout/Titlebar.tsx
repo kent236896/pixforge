@@ -1,5 +1,6 @@
 import { Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import appIcon from "@/assets/app-icon.png";
 
 export function Titlebar() {
   const win = getCurrentWindow();
@@ -11,7 +12,7 @@ export function Titlebar() {
         data-tauri-drag-region
         className="flex flex-1 items-center gap-2 pl-3 overflow-hidden cursor-default"
       >
-        <div className="w-3.5 h-3.5 rounded-sm bg-primary opacity-90 shrink-0 pointer-events-none" />
+        <img src={appIcon} alt="" className="w-4 h-4 shrink-0 pointer-events-none" />
         <span className="text-xs font-semibold tracking-tight text-foreground pointer-events-none truncate">
           PixForge
         </span>

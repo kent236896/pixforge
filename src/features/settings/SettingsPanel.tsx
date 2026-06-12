@@ -4,6 +4,7 @@ import { Moon, Sun, Monitor, Globe, Info } from "lucide-react";
 import { useAppStore, type Theme } from "@/store/app";
 import { useT, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import appIcon from "@/assets/app-icon.png";
 
 const THEME_OPTIONS: { value: Theme; icon: React.ElementType; key: string }[] = [
   { value: "light",  icon: Sun,     key: "settings.themeLight"  },
@@ -104,9 +105,11 @@ export function SettingsPanel() {
         <SectionCard>
           <SectionLabel icon={Info} label={t("settings.about")} />
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground text-lg font-bold shadow-sm select-none">
-              P
-            </div>
+            <img
+              src={appIcon}
+              alt="PixForge"
+              className="h-12 w-12 shrink-0 rounded-xl shadow-sm select-none"
+            />
             <div className="min-w-0">
               <p className="font-semibold text-foreground">PixForge</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t("settings.description")}</p>
