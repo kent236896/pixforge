@@ -31,3 +31,4 @@ dist-release/msix/*
 dist-release/msix-stage/*
 dist-release/nsis/*
 docs/store.md
+scripts/*
