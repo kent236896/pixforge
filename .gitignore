@@ -32,3 +32,4 @@ dist-release/msix-stage/*
 dist-release/nsis/*
 docs/store.md
 scripts/*
+CLAUDE.md
