@@ -32,4 +32,4 @@ PixForge does not integrate with any third-party services, advertising networks,
 ## Contact
 
 For questions about this privacy policy, contact:  
-**唐昆** — ainfteam@gmail.com
+**唐昆** — kent.neo9527@gmail.com

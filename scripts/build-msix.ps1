@@ -61,7 +61,7 @@ $PROC_ARCH = if ($Target -eq "arm64") { "arm64" } else { "x64" }
 # Store identity constants
 $IDENTITY_NAME  = "DF1049EA.PixForge"
 $PUBLISHER_DN   = "CN=E2CDB98F-2BEB-4CD5-BDEF-657F4F848F1D"
-$PUBLISHER_NAME = "唐昆"
+$PUBLISHER_NAME = "$([char]0x5510)$([char]0x6606)"  # 唐昆 — avoids PS5.1 ANSI codepage misread
 
 Write-Host ""
 Write-Host "=== PixForge MSIX Build ===" -ForegroundColor Cyan
@@ -199,7 +199,11 @@ $appxManifest = @"
   </Capabilities>
 </Package>
 "@
-$appxManifest | Out-File -FilePath (Join-Path $stageDir "AppxManifest.xml") -Encoding utf8 -Force
+[System.IO.File]::WriteAllText(
+    (Join-Path $stageDir "AppxManifest.xml"),
+    $appxManifest,
+    (New-Object System.Text.UTF8Encoding $false)
+)
 Write-Host "      Stage : $stageDir" -ForegroundColor Gray
 
 # -- 4. Locate makeappx.exe ----------------------------------------------------

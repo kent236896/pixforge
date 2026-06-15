@@ -25,3 +25,8 @@ dist-ssr
 .claude/*
 src-tauri/models/*
 target/*
+dist-release/
+dist-release/*
+dist-release/msix/*
+dist-release/msix-stage/*
+dist-release/nsis/*
