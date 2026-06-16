@@ -171,6 +171,10 @@ $appxManifest = @"
 
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency
+      Name="Microsoft.VCLibs.140.00.UWPDesktop"
+      MinVersion="14.0.24217.0"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
   </Dependencies>
 
   <Resources>
